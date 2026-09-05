@@ -12,6 +12,23 @@ Pinecone is source-available under the Pinecone Community Licence (see
 `LICENSE`): free for personal, non-commercial, non-production use; commercial,
 government, defence and production use need a licence from MilUX Ltd.
 
+## What it looks like
+
+<img src="docs/guide/images/01-replay.jpg" alt="The replay: the map, the timeline underneath, the side panel on the right" width="900">
+
+The map on the left, the timeline underneath with a row per callsign, and a side panel that
+runs in the order a debrief does: the window, the callsigns, the moments, the messages, the
+ground and the record.
+
+<p>
+<img src="docs/guide/images/04-moments.png" alt="The Moments panel: the moments kept for the debrief, and what the box noticed" width="440">
+<img src="docs/guide/images/07-record.png" alt="The Record panel: what was supposed to happen, and the items in ODCR" width="440">
+</p>
+
+Left, the moments you kept for the debrief and, under them, what the box noticed in the record,
+with its evidence and never a reason. Right, the record the room leaves with, in your unit's
+shape. The [user guide](docs/guide/README.md) has the rest.
+
 ## The name
 
 The US Army's guide to the after-action review, TC 25-20, describes the informal review a

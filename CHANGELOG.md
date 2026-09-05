@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.5 (5 September 2026)
+
+Pictures in the README: the replay, the moments and the record, from the
+user guide. Nothing in the product changed.
+
 ## 0.6.4 (5 September 2026)
 
 The README, corrected: the badge that pointed at a workflow the public
