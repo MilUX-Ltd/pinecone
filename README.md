@@ -2,18 +2,11 @@
 
 # Pinecone
 
-[![ci](https://github.com/MilUX-Ltd/pinecone/actions/workflows/ci.yml/badge.svg)](https://github.com/MilUX-Ltd/pinecone/actions/workflows/ci.yml)
-
 **Replay what a TAK Server saw, so a debrief can settle what happened and get
 on with why.** Pinecone reads the position reports (Cursor-on-Target) a TAK
 Server already holds and plays them back on a map: each callsign moving, the
 ground it has covered trailing behind it, and every gap in reporting shown as a
 gap rather than smoothed away.
-
-**Status: version 0.1.0, the spike built on 4 September 2026.** It proves the pipe from a live
-TAK Server to a moving picture. It is not the product yet: nothing is installed
-as a service, nothing records, there is no authentication. Read it as a working
-demonstration you can run on your own TAK Server in about ten minutes.
 
 Pinecone is source-available under the Pinecone Community Licence (see
 `LICENSE`): free for personal, non-commercial, non-production use; commercial,
@@ -26,10 +19,7 @@ squad leader runs in the field straight after the action: no projector, no instr
 nothing more than pinecones on the ground to stand for squad members, moved about to show who
 was where. That image is the product. Pinecone does for a TAK estate what the pinecones did: it
 puts each callsign where the record says it was and lets the room move through what happened,
-so the argument about what happened is short and the conversation about why can begin. The name
-was chosen on 4 September 2026, knowing it shares a word with a vector database, because the
-image was too exact to pass up. The mark follows it: a cone of scales, every scale a report the
-box kept, and the one in the other colour the moment the room kept.
+so the argument about what happened is short and the conversation about why can begin.
 
 ## User guide
 

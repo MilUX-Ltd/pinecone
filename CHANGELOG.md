@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.4 (5 September 2026)
+
+The README, corrected: the badge that pointed at a workflow the public
+repository no longer has, a status paragraph left over from the 0.1.0 spike,
+and two sentences in the paragraph on the name. Nothing in the product
+changed.
+
 ## 0.6.3 (5 September 2026)
 
 The mark and the guide. Pinecone has its own mark, a cone of scales, every
