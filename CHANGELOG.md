@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.3 (5 September 2026)
+
+The mark and the guide. Pinecone has its own mark, a cone of scales, every
+scale a report the box kept and the one in the other colour the moment the
+room kept; it is in the page header, in the browser tab, and on the front of
+the README with the strapline, the debrief replay for TAK. A user guide,
+`docs/guide/README.md`, starts the moment Pinecone is installed and takes a
+reader through a debrief with pictures of the app over a synthetic exercise.
+The README says where the name came from. The public repository no longer
+carries a workflow, because a publish surface has no CI to fail.
+
 ## 0.6.2 (5 September 2026)
 
 The hygiene suite is a maintainer's test over the private tree and it carries

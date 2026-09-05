@@ -61,6 +61,7 @@ def test_package_builds_the_public_snapshot_without_private_files(root: Path, tm
         "docs/security/threat-model.md",
         "docs/adr/001-target-architecture.md",  # the decision records stay private (decided 5 September 2026)
         "tests/test_repo_hygiene.py",  # a maintainer's test over the private tree; it carries the words it keeps out
+        ".github/workflows/ci.yml",  # the public repository is a publish surface; its CI could only fail
     ):
         assert private not in names, private
     for public in (
@@ -71,6 +72,8 @@ def test_package_builds_the_public_snapshot_without_private_files(root: Path, tm
         "serve.py",
         "update.sh",
         "data/synthetic.json",
+        "docs/guide/README.md",  # the user guide ships; it is for users
+        "docs/assets/pinecone-banner.svg",
     ):
         assert public in names, public
     assert (tmp_path / (tgz.name + ".sha256")).read_text().split()[1].endswith(tgz.name)

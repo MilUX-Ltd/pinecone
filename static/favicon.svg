@@ -1,0 +1,13 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pinecone">
+  <rect width="64" height="64" rx="12" fill="#113308"/>
+  <g transform="translate(32,14) scale(0.72)">
+    <path d="M0,-11 L14.0,0 L0,11 L-14.0,0 Z" fill="#F7F6EB"/>
+    <path d="M-12,5 L2.0,16 L-12,27 L-26.0,16 Z" fill="#F7F6EB"/>
+    <path d="M12,5 L26.0,16 L12,27 L-2.0,16 Z" fill="#F7F6EB"/>
+    <path d="M-24,21 L-10.0,32 L-24,43 L-38.0,32 Z" fill="#F7F6EB"/>
+    <path d="M0,21 L14.0,32 L0,43 L-14.0,32 Z" fill="#A35C17"/>
+    <path d="M24,21 L38.0,32 L24,43 L10.0,32 Z" fill="#F7F6EB"/>
+    <path d="M-12,37 L2.0,48 L-12,59 L-26.0,48 Z" fill="#F7F6EB"/>
+    <path d="M12,37 L26.0,48 L12,59 L-2.0,48 Z" fill="#F7F6EB"/>
+  </g>
+</svg>

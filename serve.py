@@ -209,6 +209,7 @@ MIME = {
     ".css": "text/css",
     ".json": "application/json",
     ".png": "image/png",
+    ".svg": "image/svg+xml",
     ".jpg": "image/jpeg",
 }
 
@@ -1139,7 +1140,7 @@ class H(BaseHTTPRequestHandler):
                 404 if d is None else 200, json.dumps(d or {"error": "not installed"}).encode(), MIME[".json"]
             )
         if p == "/favicon.ico":
-            return self.send(204)
+            return self.file(os.path.join(HERE, "static", "favicon.svg"))
         if p == "/version":
             return self.send(
                 200,

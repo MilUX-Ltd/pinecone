@@ -1,0 +1,38 @@
+<svg viewBox="0 0 1200 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pinecone - the debrief replay for TAK">
+  <defs>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#F7F6EB" stroke-width="1" opacity="0.05"/>
+    </pattern>
+  </defs>
+  <rect width="1200" height="400" fill="#113308"/>
+  <rect width="1200" height="400" fill="url(#grid)"/>
+
+  <!-- the pinecone mark: a cone of scales, every one a report the box kept; the one in the other colour is the moment the room kept -->
+  <g transform="translate(300,102) scale(2.0)">
+    <path d="M0,-9 L11.0,0 L0,9 L-11.0,0 Z" fill="#F7F6EB"/>
+    <path d="M-12,7 L-1.0,16 L-12,25 L-23.0,16 Z" fill="#F7F6EB"/>
+    <path d="M12,7 L23.0,16 L12,25 L1.0,16 Z" fill="#F7F6EB"/>
+    <path d="M-24,23 L-13.0,32 L-24,41 L-35.0,32 Z" fill="#F7F6EB"/>
+    <path d="M0,23 L11.0,32 L0,41 L-11.0,32 Z" fill="#A35C17"/>
+    <path d="M24,23 L35.0,32 L24,41 L13.0,32 Z" fill="#F7F6EB"/>
+    <path d="M-36,39 L-25.0,48 L-36,57 L-47.0,48 Z" fill="#F7F6EB"/>
+    <path d="M-12,39 L-1.0,48 L-12,57 L-23.0,48 Z" fill="#F7F6EB"/>
+    <path d="M12,39 L23.0,48 L12,57 L1.0,48 Z" fill="#F7F6EB"/>
+    <path d="M36,39 L47.0,48 L36,57 L25.0,48 Z" fill="#F7F6EB"/>
+    <path d="M-36,55 L-25.0,64 L-36,73 L-47.0,64 Z" fill="#F7F6EB"/>
+    <path d="M-12,55 L-1.0,64 L-12,73 L-23.0,64 Z" fill="#F7F6EB"/>
+    <path d="M12,55 L23.0,64 L12,73 L1.0,64 Z" fill="#F7F6EB"/>
+    <path d="M36,55 L47.0,64 L36,73 L25.0,64 Z" fill="#F7F6EB"/>
+    <path d="M-24,71 L-13.0,80 L-24,89 L-35.0,80 Z" fill="#F7F6EB"/>
+    <path d="M0,71 L11.0,80 L0,89 L-11.0,80 Z" fill="#F7F6EB"/>
+    <path d="M24,71 L35.0,80 L24,89 L13.0,80 Z" fill="#F7F6EB"/>
+    <path d="M-12,87 L-1.0,96 L-12,105 L-23.0,96 Z" fill="#F7F6EB"/>
+    <path d="M12,87 L23.0,96 L12,105 L1.0,96 Z" fill="#F7F6EB"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="500" y="228" font-family="Arial, Helvetica, sans-serif" font-size="92" font-weight="700" fill="#F7F6EB" letter-spacing="2">PINECONE</text>
+
+  <!-- tagline -->
+  <text x="503" y="266" font-family="Arial, Helvetica, sans-serif" font-size="23" fill="#B5B171" letter-spacing="0.5">The debrief replay for TAK</text>
+</svg>

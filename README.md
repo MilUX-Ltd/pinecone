@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/pinecone-banner.svg" alt="Pinecone" width="720"></p>
+
 # Pinecone
 
 [![ci](https://github.com/MilUX-Ltd/pinecone/actions/workflows/ci.yml/badge.svg)](https://github.com/MilUX-Ltd/pinecone/actions/workflows/ci.yml)
@@ -16,6 +18,24 @@ demonstration you can run on your own TAK Server in about ten minutes.
 Pinecone is source-available under the Pinecone Community Licence (see
 `LICENSE`): free for personal, non-commercial, non-production use; commercial,
 government, defence and production use need a licence from MilUX Ltd.
+
+## The name
+
+The US Army's guide to the after-action review, TC 25-20, describes the informal review a
+squad leader runs in the field straight after the action: no projector, no instrumentation,
+nothing more than pinecones on the ground to stand for squad members, moved about to show who
+was where. That image is the product. Pinecone does for a TAK estate what the pinecones did: it
+puts each callsign where the record says it was and lets the room move through what happened,
+so the argument about what happened is short and the conversation about why can begin. The name
+was chosen on 4 September 2026, knowing it shares a word with a vector database, because the
+image was too exact to pass up. The mark follows it: a cone of scales, every scale a report the
+box kept, and the one in the other colour the moment the room kept.
+
+## User guide
+
+[The user guide](docs/guide/README.md) starts the moment Pinecone is installed and takes you
+through a debrief with pictures: reaching the hour it happened, reading the map, marking the
+moments, settling a fact from the record, and leaving the room with a file.
 
 ## How it works
 

@@ -77,7 +77,7 @@ def test_static_is_served_by_basename_only(server: str) -> None:
     assert get(f"{server}/")[0] == 200
     assert get(f"{server}/vendor/leaflet.js")[0] == 200
     assert get(f"{server}/static/../CLAUDE.md")[0] == 404
-    assert get(f"{server}/favicon.ico")[0] == 204
+    assert get(f"{server}/favicon.ico")[0] == 200  # the mark, as SVG, for browsers that ask the old way
     assert get(f"{server}/nothing-here")[0] == 404
 
 

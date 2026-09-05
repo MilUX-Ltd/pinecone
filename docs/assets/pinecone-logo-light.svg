@@ -1,0 +1,24 @@
+<svg viewBox="0 0 420 96" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Pinecone">
+  <g transform="translate(50,13) scale(0.75)">
+    <path d="M0,-9 L11.0,0 L0,9 L-11.0,0 Z" fill="#113308"/>
+    <path d="M-12,7 L-1.0,16 L-12,25 L-23.0,16 Z" fill="#113308"/>
+    <path d="M12,7 L23.0,16 L12,25 L1.0,16 Z" fill="#113308"/>
+    <path d="M-24,23 L-13.0,32 L-24,41 L-35.0,32 Z" fill="#113308"/>
+    <path d="M0,23 L11.0,32 L0,41 L-11.0,32 Z" fill="#A35C17"/>
+    <path d="M24,23 L35.0,32 L24,41 L13.0,32 Z" fill="#113308"/>
+    <path d="M-36,39 L-25.0,48 L-36,57 L-47.0,48 Z" fill="#113308"/>
+    <path d="M-12,39 L-1.0,48 L-12,57 L-23.0,48 Z" fill="#113308"/>
+    <path d="M12,39 L23.0,48 L12,57 L1.0,48 Z" fill="#113308"/>
+    <path d="M36,39 L47.0,48 L36,57 L25.0,48 Z" fill="#113308"/>
+    <path d="M-36,55 L-25.0,64 L-36,73 L-47.0,64 Z" fill="#113308"/>
+    <path d="M-12,55 L-1.0,64 L-12,73 L-23.0,64 Z" fill="#113308"/>
+    <path d="M12,55 L23.0,64 L12,73 L1.0,64 Z" fill="#113308"/>
+    <path d="M36,55 L47.0,64 L36,73 L25.0,64 Z" fill="#113308"/>
+    <path d="M-24,71 L-13.0,80 L-24,89 L-35.0,80 Z" fill="#113308"/>
+    <path d="M0,71 L11.0,80 L0,89 L-11.0,80 Z" fill="#113308"/>
+    <path d="M24,71 L35.0,80 L24,89 L13.0,80 Z" fill="#113308"/>
+    <path d="M-12,87 L-1.0,96 L-12,105 L-23.0,96 Z" fill="#113308"/>
+    <path d="M12,87 L23.0,96 L12,105 L1.0,96 Z" fill="#113308"/>
+  </g>
+  <text x="112" y="62" font-family="Arial, Helvetica, sans-serif" font-size="46" font-weight="700" fill="#113308" letter-spacing="1.5">PINECONE</text>
+</svg>
