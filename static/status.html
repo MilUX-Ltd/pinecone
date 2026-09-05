@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Pinecone {{version}}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { --bg:#14181c; --panel:#1d2329; --line:#2c353d; --fg:#e8e6df; --dim:#9aa4ad; --accent:#B5B171; --warn:#e0a030; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 24px 20px 48px; }
+  h1 { font-size:20px; margin:0 0 4px; } h1 small { color:var(--dim); font-weight:400; }
+  p.lead { color:var(--dim); margin-top:0; }
+  dl { display:grid; grid-template-columns: 160px 1fr; gap: 10px 18px; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px; }
+  dt { color:var(--dim); } dd { margin:0; }
+  code { background:#2a333c; padding:1px 5px; border-radius:3px; font-size:13px; }
+  .warn { color:var(--warn); }
+  a { color:var(--accent); }
+  ul { margin:0; padding-left:18px; }
+  ul.maps { list-style:none; padding:0; }
+  ul.maps li { padding:6px 0; border-bottom:1px solid var(--line); }
+  ul.maps li:last-child { border-bottom:0; }
+  .dim { color:var(--dim); }
+  button.choose { background:#2a333c; color:var(--fg); border:1px solid #3a4650; border-radius:4px; padding:2px 8px; font:inherit; font-size:12px; cursor:pointer; }
+  button.choose:hover { background:#34404a; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pinecone {{version}}</h1>
+  <p class="lead">What this box's TAK Server is, where its history lives, and what Pinecone can see of it. Each fact says where it came from.</p>
+  {{body}}
+</main>
+<script>
+// Choosing a map: one click, no restart. The id is one the box itself found.
+document.addEventListener('click', async (ev) => {
+  const b = ev.target.closest('button.choose');
+  if (!b) return;
+  b.disabled = true; b.textContent = 'choosing...';
+  try {
+    const r = await fetch('/api/maps/choose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'id=' + encodeURIComponent(b.dataset.id),
+    });
+    if (!r.ok) { const d = await r.json().catch(() => ({})); b.textContent = d.error || 'could not choose'; return; }
+    location.reload();
+  } catch (e) { b.disabled = false; b.textContent = 'could not choose'; }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# fake: the installed takserver package
+[[ "$*" == *takserver* ]] && { printf 'takserver 5.8-RELEASE75\n'; exit 0; }
+exit 1

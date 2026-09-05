@@ -1,0 +1,305 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<title>Pinecone spike: CoT replay</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/vendor/leaflet.css">
+<style>
+  :root { --bg:#14181c; --panel:#1d2329; --line:#2c353d; --fg:#e8e6df; --dim:#9aa4ad; --accent:#B5B171; --warn:#e0a030; --green:#113308; }
+  * { box-sizing: border-box; }
+  html, body { height:100%; margin:0; background:var(--bg); color:var(--fg); font:13px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  #app { display:grid; grid-template-columns: minmax(0,1fr) 300px; grid-template-rows: minmax(0,1fr) auto; height:100%; }
+  #map, #bottom { min-width:0; min-height:0; }
+  #map { grid-column:1; grid-row:1; background:#0e1114; }
+  #side { grid-column:2; grid-row:1 / span 2; background:var(--panel); border-left:1px solid var(--line); overflow:auto; padding:10px 12px; }
+  #bottom { grid-column:1; grid-row:2; background:var(--panel); border-top:1px solid var(--line); padding:8px 12px 10px; }
+  h1 { font-size:15px; margin:0 0 2px; font-weight:600; letter-spacing:.2px; }
+  h1 small { color:var(--dim); font-weight:400; }
+  .muted { color:var(--dim); }
+  #clock { display:flex; gap:18px; align-items:baseline; margin-bottom:6px; flex-wrap:wrap; }
+  #clock .big { font-size:22px; font-variant-numeric:tabular-nums; font-weight:600; }
+  #clock .day { font-size:14px; color:var(--dim); }
+  #controls { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:8px; }
+  button, select { background:#2a333c; color:var(--fg); border:1px solid #3a4650; border-radius:4px; padding:4px 9px; font:inherit; cursor:pointer; }
+  button:hover { background:#34404a; }
+  button.on { background:var(--accent); color:#111; border-color:var(--accent); font-weight:600; }
+  button.play { min-width:74px; font-weight:600; }
+  #timeline { display:block; width:100%; max-width:100%; height:110px; background:#11161a; border:1px solid var(--line); border-radius:4px; cursor:crosshair; }
+  #scrub { display:block; width:100%; margin:6px 0 0; accent-color:var(--accent); cursor:pointer; }
+  .track { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .track.off { opacity:.4; }
+  .track .sw { width:16px; height:16px; flex:none; }
+  .track .name { font-weight:600; }
+  .track .sub { color:var(--dim); font-size:11px; }
+  .track .st { margin-left:auto; font-size:11px; text-align:right; white-space:nowrap; }
+  .track .st.stale { color:#e0a030; }
+  .track .st.fresh { color:#7fd48a; }
+  .track .st.none { color:var(--dim); }
+  .kv { font-size:11px; color:var(--dim); margin:6px 0 10px; }
+  .kv b { color:var(--fg); font-weight:600; }
+  label.inl { display:inline-flex; gap:6px; align-items:center; color:var(--dim); }
+  .leaflet-container { font:inherit; }
+  .leaflet-control-attribution { background:rgba(20,24,28,.8); color:var(--dim); font-size:10px; }
+  .leaflet-control-attribution a { color:var(--accent); }
+  .pc-markers { pointer-events:none; }
+  #legend { font-size:11px; color:var(--dim); display:flex; gap:12px; flex-wrap:wrap; margin-top:6px; }
+  #legend span::before { content:""; display:inline-block; width:10px; height:10px; margin-right:4px; vertical-align:-1px; background:var(--dim); }
+  #legend .c::before { border-radius:50%; }
+  #legend .t::before { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
+  #legend .s::before { }
+  #legend .d::before { clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); }
+  #legend .h::before { clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%); }
+  kbd { background:#2a333c; border:1px solid #3a4650; border-radius:3px; padding:0 4px; font-size:11px; }
+  #gear { position:absolute; top:10px; right:310px; z-index:1000; height:32px; padding:0 10px; font:inherit; font-weight:600; background:var(--panel); border:1px solid var(--line); border-radius:4px; color:var(--fg); cursor:pointer; }
+  #nomap { position:absolute; left:50%; top:45%; transform:translate(-50%,-50%); z-index:900; text-align:center; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:14px 18px; box-shadow:0 6px 24px rgba(0,0,0,.45); }
+  #nomap button { font:inherit; font-size:15px; font-weight:600; padding:6px 12px; background:#1b1e18; color:var(--fg); border:1px solid var(--accent); border-radius:4px; cursor:pointer; }
+  #nomap .sub { color:var(--dim); font-size:12px; margin-top:6px; }
+  #gear:hover { background:#2a333c; }
+  #settings { position:absolute; top:48px; right:310px; z-index:1000; width:320px; max-height:70vh; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px 14px; box-shadow:0 6px 24px rgba(0,0,0,.45); }
+  #settings h2 { font-size:12px; text-transform:uppercase; letter-spacing:.6px; color:var(--dim); margin:0 0 8px; font-weight:600; }
+  #settings h2 + * { margin-top:0; }
+  #settings p { margin:0 0 12px; font-size:12px; }
+  .mapopt { display:block; width:100%; text-align:left; padding:7px 9px; margin:0 0 6px; background:#222a31; border:1px solid var(--line); border-radius:4px; color:var(--fg); font:inherit; font-size:12px; cursor:pointer; }
+  .mapopt:hover { background:#2a333c; }
+  .mapopt.on { border-color:var(--accent); background:#2b3128; }
+  .mapopt .n { font-weight:600; display:block; }
+  .mapopt .o { color:var(--dim); font-size:11px; }
+  .mapopt .o.warn { color:var(--warn); }
+  #meta .warn { color:var(--warn); }
+  #window { display:flex; flex-direction:column; gap:4px; }
+  #window .row { display:flex; gap:6px; align-items:center; }
+  #window label { width:34px; color:var(--dim); }
+  #window input { flex:1; min-width:0; background:#1b1e18; color:inherit; border:1px solid #3a3f36;
+                  border-radius:3px; padding:3px 5px; font:inherit; }
+  #window .quick { display:flex; gap:4px; flex-wrap:wrap; }
+  #window .quick button { flex:1; }
+  #winmsg { color:var(--dim); }
+  #winmsg.warn { color:var(--warn); }
+  #ground .hd { color:var(--dim); margin-bottom:3px; }
+  #groundlist label { display:block; }
+  #packadd { display:flex; flex-direction:column; gap:4px; }
+  #packadd .row { display:flex; gap:6px; }
+  #packadd input { flex:1; min-width:0; background:#1b1e18; color:inherit; border:1px solid #3a3f36;
+                   border-radius:3px; padding:3px 5px; font:inherit; }
+  #packmsg { color:var(--dim); }
+  #packmsg.warn { color:var(--warn); }
+  #moments .hd { display:flex; justify-content:space-between; color:var(--dim); margin-bottom:3px; }
+  #moments .hd.sub { margin-top:10px; border-top:1px solid var(--line); padding-top:6px; }
+  #callsigns .hd { display:flex; justify-content:space-between; color:var(--dim); margin-bottom:3px; gap:8px; }
+  #callsigns .hd #csnote { font-size:11px; text-align:right; }
+  #tracks .track button.where { font-size:11px; padding:1px 5px; margin-left:auto; }
+  #wheremsg { margin:4px 0 2px; }
+  #wheremsg .sub { display:block; color:var(--dim); font-size:11px; }
+  #wheremsg.warn { color:var(--warn); }
+  #keys .hd { display:flex; justify-content:space-between; color:var(--dim); }
+  #keys .hd button { font-size:11px; padding:1px 5px; }
+  #window .hd { color:var(--dim); margin-bottom:3px; }
+  #window .row label { min-width:3.2em; color:var(--dim); font-size:11px; }
+  #settings h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--dim); margin:12px 0 4px; }
+  #moments .row { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+  #moments input { flex:1; min-width:0; background:#1b1e18; color:inherit; border:1px solid #3a3f36; padding:3px 6px; }
+  #moments .why { color:var(--dim); font-size:11px; margin-bottom:4px; }
+  #propkinds { display:flex; flex-wrap:wrap; gap:4px; margin:4px 0; }
+  #propkinds button { font-size:11px; padding:1px 6px; border-radius:10px; opacity:.55; }
+  #propkinds button.on { opacity:1; border-color:var(--accent); }
+  #proplist { max-height:260px; overflow-y:auto; }
+  #moments .p { display:block; padding:4px 0; cursor:pointer; border-bottom:1px solid var(--line); }
+  #moments .p:hover { background:#1b1e18; }
+  #moments .p .top { display:flex; gap:8px; align-items:baseline; }
+  #moments .p .t { color:var(--dim); font-variant-numeric:tabular-nums; white-space:nowrap; font-size:11px; }
+  #moments .p .kind { color:var(--accent); white-space:nowrap; font-size:11px; }
+  #moments .p .e { display:block; margin:2px 0 3px; }
+  #moments .p .acts { display:flex; gap:6px; justify-content:flex-end; }
+  #moments .p button { font-size:11px; padding:1px 5px; }
+  #moments .warn, #wheremsg.warn { color:var(--warn); }
+  #wheremsg { margin-bottom:4px; }
+  #record .hd { display:flex; justify-content:space-between; color:var(--dim); margin-bottom:3px; }
+  #record .row { display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+  #record input, #record textarea, #record select { background:#1b1e18; color:inherit; border:1px solid #3a3f36; border-radius:3px; padding:3px 5px; font:inherit; }
+  #record input, #record textarea { flex:1; min-width:0; width:100%; box-sizing:border-box; }
+  #record textarea { min-height:2.6em; resize:vertical; }
+  #record .item { border:1px solid var(--line); border-radius:4px; padding:5px 6px; margin:5px 0; }
+  #record .item .top { display:flex; gap:6px; align-items:center; margin-bottom:3px; }
+  #record .item label { color:var(--dim); font-size:11px; display:block; margin-top:3px; }
+  #record .item .top label { display:inline; margin:0; white-space:nowrap; }
+  #record .item .top input { flex:1; min-width:60px; }
+  #momentlist .m .inrec { color:var(--dim); font-size:11px; }
+  #record .item button, #record .row button { font-size:11px; padding:1px 5px; }
+  #record .warn { color:var(--warn); }
+  #record .why, #chat .why { color:var(--dim); font-size:11px; margin:2px 0 6px; }
+  #record > label, #record #recform > label, #record #recopen > label { color:var(--dim); font-size:11px; display:block; margin-top:4px; }
+  #record #recpick label { color:var(--dim); font-size:11px; }
+  #record .rectitle { font-weight:600; margin:4px 0 2px; }
+  #record a.btn { display:inline-block; font-size:11px; padding:2px 6px; border:1px solid #3a3f36; border-radius:3px; color:inherit; text-decoration:none; background:#1b1e18; }
+  #record a.btn:hover { border-color:var(--accent); }
+  #record .recdanger { margin-top:8px; }
+  #record .recdanger button { opacity:.6; }
+  #recmsg { color:var(--dim); }
+  #moments .hd { display:flex; justify-content:space-between; color:var(--dim); margin-bottom:3px; }
+  #moments .row { display:flex; gap:6px; align-items:center; }
+  #moments input { flex:1; min-width:0; background:#1b1e18; color:inherit; border:1px solid #3a3f36;
+                   border-radius:3px; padding:3px 5px; font:inherit; }
+  #momentlist { max-height: 180px; overflow-y: auto; }
+  #momentlist .m { display:flex; gap:6px; align-items:baseline; padding:2px 0; cursor:pointer; }
+  #momentlist .m:hover { background:#1b1e18; }
+  #momentlist .m .t { color:var(--dim); font-variant-numeric: tabular-nums; }
+  #momentlist .m .n { flex:1; }
+  #momentlist .m.promoted .n { color:var(--accent, #B5B171); font-weight:600; }
+  #momentlist .m .k { color:var(--dim); font-size:11px; }
+  #momentlist .m button { font-size:11px; padding:1px 5px; }
+  #momentmsg { color:var(--dim); }
+  #momentmsg.warn { color:var(--warn); }
+  #timefacts .tf { padding:2px 0; }
+  #chat .hd { color:var(--dim); margin-bottom:3px; }
+  #chatnow { min-height:1.2em; color:#7fb3d5; }
+  #chatlist { max-height:160px; overflow-y:auto; }
+  #chatlist .msg { display:flex; gap:5px; align-items:baseline; padding:2px 0; cursor:pointer; }
+  #chatlist .msg:hover { background:#1b1e18; }
+  #chatlist .msg .t { color:var(--dim); font-variant-numeric: tabular-nums; }
+  #chatlist .msg .room { color:var(--dim); }
+  #chatlist .msg .x { flex:1; }
+  #timefacts .dim { color:var(--dim); margin-top:4px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="map"></div>
+  <button id="gear" title="Map: choose the online map or a pack this box holds">Map</button>
+  <div id="nomap" hidden><button id="nomapbtn">No map: pick a map pack</button><div class="sub">There is no network for the online map and no pack has been chosen.</div></div>
+  <div id="settings" hidden>
+    <h2>Map</h2>
+    <div id="maplist">reading what this box carries...</div>
+    <h2>This box</h2>
+    <div class="kv" id="meta"></div>
+    <div class="kv">Pinecone <b id="ver">?</b> &nbsp;<button id="updcheck">Check for updates</button> <span id="updmsg"></span> <button id="updnow" hidden>Update now</button></div>
+    <p><a href="/status">What Pinecone found on this server</a></p>
+    <h2>Drawing</h2>
+    <div class="kv">
+      <label class="inl">Call it a gap after
+        <select id="gap">
+          <option value="auto" selected>auto: four times this callsign's usual interval</option>
+          <option value="120000">2 min</option>
+          <option value="300000">5 min</option>
+          <option value="600000">10 min</option>
+          <option value="1800000">30 min</option>
+          <option value="3600000">60 min</option>
+        </select>
+      </label>
+    </div>
+    <div class="kv">
+      <label class="inl"><input type="checkbox" id="full" checked> Full tracks underneath</label>
+      &nbsp; <label class="inl">Bold trail
+        <select id="trail">
+          <option value="0" selected>whole run</option>
+          <option value="3600000">last 60 min</option>
+          <option value="900000">last 15 min</option>
+          <option value="300000">last 5 min</option>
+        </select>
+      </label>
+    </div>
+    <h2>Mission packs</h2>
+    <div class="kv" id="packadd">
+      <div class="row"><input id="packpath" type="text" placeholder="path to a mission pack on this box"></div>
+      <div class="row"><button id="packgo">Import mission pack</button></div>
+      <div id="packmsg"></div>
+    </div>
+    <h2>How late the reports were</h2>
+    <div class="kv" id="timefacts"><div class="hd" style="color:var(--dim);margin-bottom:3px">Per callsign, from the record's own clocks</div></div>
+  </div>
+  <div id="side">
+    <h1>Pinecone <small>CoT replay</small></h1>
+    <div class="kv" id="window">
+      <div class="hd"><span>Window</span></div>
+      <div class="row"><label for="bundle">Quick</label><select id="bundle"></select></div>
+      <div class="row"><label for="wstart">From</label><input id="wstart" type="datetime-local" step="1"></div>
+      <div class="row"><label for="wend">To</label><input id="wend" type="datetime-local" step="1"></div>
+      <div class="row"><button id="wgo">Replay this window</button></div>
+      <div id="winmsg"></div>
+    </div>
+    <div class="kv" id="callsigns">
+      <div class="hd"><span>Callsigns</span><span id="csnote">click one to hide it; where? answers for the clock</span></div>
+      <div id="tracks"></div>
+      <div id="wheremsg"></div>
+    </div>
+    <div class="kv" id="moments">
+      <div class="hd"><span>Moments</span><span id="budget"></span></div>
+      <div class="why">Press m at any time to mark the moment the clock is at, then name it. Keep up to six for the debrief; the number keys jump to them.</div>
+      <div class="row"><input id="momentname" placeholder="press m to mark this moment, Enter to keep it"><button id="momentkeep">Keep</button></div>
+      <div id="momentlist"></div>
+      <div id="momentmsg"></div>
+      <div class="hd sub"><span>Noticed by this box</span><span id="propcount"></span></div>
+      <div class="why">What the box found in the record, with the evidence and never a reason. Keep one and it joins your moments; dismiss keeps it off this box.</div>
+      <div id="propkinds"></div>
+      <div id="proplist"></div>
+      <div class="row"><button id="propmore" hidden>show more</button></div>
+      <div id="propmsg"></div>
+    </div>
+    <div class="kv" id="chat">
+      <div class="hd">Messages</div>
+      <div class="why" id="chatwhy"></div>
+      <div id="chatnow"></div>
+      <div id="chatlist"></div>
+    </div>
+    <div class="kv" id="ground" hidden>
+      <div class="hd">The ground it happened on</div>
+      <div id="groundlist"></div>
+    </div>
+    <div class="kv" id="record">
+      <div class="hd"><span>Record</span><span id="recbudget"></span></div>
+      <div class="why">What you take away from this debrief: what was supposed to happen, the moments you kept, and the items the room agrees. Export it as one file before you leave.</div>
+      <div class="row" id="recpick"><label for="recsel">Open</label><select id="recsel"><option value="">no record yet</option></select><button id="recnew">Start a record for this window</button></div>
+      <div id="recform" hidden>
+        <label for="rectitle">Title</label>
+        <div class="row"><input id="rectitle" placeholder="exercise, serial, who"></div>
+        <label for="recobj">What was supposed to happen</label>
+        <div class="row"><textarea id="recobj" placeholder="objectives, mission, intent"></textarea></div>
+        <div class="row"><button id="recstart">Start this record</button><button id="reccancel">Cancel</button></div>
+      </div>
+      <div id="recopen" hidden>
+        <div class="rectitle" id="recopentitle"></div>
+        <label for="recobjectives">What was supposed to happen</label>
+        <div class="row"><textarea id="recobjectives" placeholder="objectives, mission, intent"></textarea></div>
+        <div class="why" id="rechow">Press <b>add to record</b> beside any moment above, or add an item here. An item is what was observed, the discussion, the conclusion and the recommendation, owned by a duty position, never a person.</div>
+        <div id="recitems"></div>
+        <div class="row" id="recnewrow" hidden><input id="recnewobs" placeholder="what was observed, in the room's words, then Enter"></div>
+        <div class="row"><button id="recadd">Add an item</button><a id="recexport" class="btn" hidden download>Export the record as a file</a></div>
+        <div class="row recdanger"><button id="recdel">Delete this record from the box</button></div>
+      </div>
+      <div id="recmsg"></div>
+    </div>
+    <div class="kv" id="keys">
+      <div class="hd"><span>Marks and keys</span><button id="keystoggle">show</button></div>
+      <div id="keyshelp" hidden>
+        <div id="legend">
+          <span class="c">ATAK</span><span class="t">Meshtastic</span><span class="s">WinTAK</span><span class="d">CloudTAK / WebTAK</span><span class="h">other</span>
+        </div>
+        <div class="kv" style="margin-top:6px">The marker sits at the last report received at or before the clock; nothing is guessed between reports. A hollow marker has had no report for longer than the gap threshold. Trails break where reports stopped.</div>
+        <div class="kv"><kbd>space</kbd> play/pause · <kbd>←</kbd><kbd>→</kbd> step 10 s · <kbd>[</kbd><kbd>]</kbd> slower/faster · <kbd>r</kbd> reverse · <kbd>f</kbd> fit map · <kbd>m</kbd> mark a moment · <kbd>1</kbd>..<kbd>6</kbd> jump to a kept moment</div>
+      </div>
+    </div>
+  </div>
+  <div id="bottom">
+    <div id="clock">
+      <span class="day" id="day"></span>
+      <span class="big" id="utc"></span>
+      <span class="muted" id="local"></span>
+      <span class="muted" id="speedlbl"></span>
+      <span class="muted" id="pos"></span>
+    </div>
+    <div id="controls">
+      <button id="play" class="play">Play</button>
+      <button id="toStart" title="to start">⏮</button>
+      <span class="muted" style="margin-left:6px">Speed</span>
+      <span id="speeds"></span>
+      <button id="rev" title="reverse direction">Reverse</button>
+      <button id="fit" title="fit map to tracks">Fit</button>
+    </div>
+    <canvas id="timeline"></canvas>
+    <input type="range" id="scrub" min="0" max="100000" value="0" step="1" title="scrub">
+  </div>
+</div>
+<script src="/vendor/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

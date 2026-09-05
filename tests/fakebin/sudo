@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# fake: "sudo -u postgres psql ..." runs the fake psql; anything else runs as is
+if [[ "$1" == "-u" ]]; then shift 2; fi
+[[ "$1" == "-n" ]] && shift
+exec "$@"

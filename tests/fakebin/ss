@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# fake: what a TAK box listens on
+cat <<'T'
+State  Recv-Q Send-Q Local Address:Port Peer Address:Port
+LISTEN 0      4096   0.0.0.0:8089      0.0.0.0:*
+LISTEN 0      4096   0.0.0.0:8443      0.0.0.0:*
+LISTEN 0      4096   0.0.0.0:8446      0.0.0.0:*
+LISTEN 0      244    127.0.0.1:5432    0.0.0.0:*
+LISTEN 0      128    0.0.0.0:22        0.0.0.0:*
+T

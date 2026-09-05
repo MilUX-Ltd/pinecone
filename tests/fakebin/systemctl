@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# fake: takserver is active; anything else is accepted silently
+case "$1" in
+  is-active) [[ "$2" == takserver* ]] && { echo active; exit 0; } || { echo inactive; exit 3; } ;;
+  *) echo "systemctl $*" >> "${PINECONE_FAKE_LOG:-/dev/null}"; exit 0 ;;
+esac

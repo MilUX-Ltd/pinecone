@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# fake: the pinecone user does not exist until useradd has been logged; root otherwise
+if [[ "$*" == *pinecone* ]]; then grep -q "useradd.*pinecone" "${PINECONE_FAKE_LOG:-/dev/null}" 2>/dev/null && { echo "uid=999(pinecone)"; exit 0; } || exit 1; fi
+[[ "$1" == "-u" ]] && { echo 0; exit 0; }
+echo "uid=0(root) gid=0(root)"

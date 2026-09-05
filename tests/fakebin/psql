@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# fake: answers the queries discovery and the page make; records what it was asked
+LOG="${PINECONE_FAKE_LOG:-/dev/null}"
+SQL=""; while [[ $# -gt 0 ]]; do case "$1" in -c) SQL="$2"; shift 2 ;; *) shift ;; esac; done
+[[ -z "$SQL" ]] && SQL="$(cat)"
+printf 'psql: %s\n' "$SQL" >> "$LOG"
+case "$SQL" in
+  *"count(*)"*)      printf '148298|398|2026-08-08 14:37:52+00|2026-09-04 11:39:43+00\n' ;;
+  *"show timezone"*|*"SHOW timezone"*|*"SHOW TimeZone"*) printf 'America/New_York\n' ;;
+  *pg_roles*)        [[ -n "${PINECONE_FAKE_ROLE_EXISTS:-}" ]] && printf 'pinecone\n' ;;
+  *)                 printf 'ok\n' ;;
+esac
