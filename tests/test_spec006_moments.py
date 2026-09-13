@@ -5,10 +5,6 @@ Everything here is synthetic."""
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -29,35 +25,14 @@ def call(url: str, data: dict | None = None, method: str | None = None) -> tuple
         return e.code, e.read().decode()
 
 
-def start(port: int, data: Path, state: Path) -> subprocess.Popen:
-    p = subprocess.Popen(
-        [sys.executable, str(ROOT / "serve.py"), "--port", str(port), "--data", str(data), "--state", str(state)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    for _ in range(60):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-            break
-        except Exception:
-            time.sleep(0.1)
-    return p
-
-
 @pytest.fixture()
-def box(tmp_path: Path):
+def box(serve_pinecone, tmp_path: Path):
     data = tmp_path / "data"
     data.mkdir()
     state = tmp_path / "state"
     state.mkdir()
-    port = 9700 + (os.getpid() % 50)
-    p = start(port, data, state)
-    try:
-        yield f"http://127.0.0.1:{port}", data, state, port
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+    with serve_pinecone(data=data, args=["--state", str(state)]) as started:
+        yield started.url, data, state, started.port
 
 
 T0 = 1_788_426_000_000  # 3 September 2026, 09:00 UTC
@@ -79,21 +54,18 @@ def test_a_moment_is_kept_and_listed(box) -> None:
     assert listed["promoted_cap"] >= 1 and listed["promoted"] == 0, "the budget is visible on every read"
 
 
-def test_moments_survive_the_server_restarting(box) -> None:
+def test_moments_survive_the_server_restarting(serve_pinecone, box) -> None:
     base, data, state, port = box
     call(f"{base}/api/moments", {"at": T0, "name": "Contact point"})
     # A second server, a separate process, on the same state directory while the first still
     # runs: it reads the file cold, which is the cross-process persistence the criterion asks for.
     code, body = call(f"{base}/api/moments")
     assert len(json.loads(body)["moments"]) == 1
-    p = start(port + 1, data, state)
-    try:
-        code, body = call(f"http://127.0.0.1:{port + 1}/api/moments")
+    with serve_pinecone(data=data, args=["--state", str(state)]) as second:
+        assert second.port != port, "the second box is a second process on a port of its own"
+        code, body = call(f"{second.url}/api/moments")
         assert code == 200
         assert [m["name"] for m in json.loads(body)["moments"]] == ["Contact point"]
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
 
 
 def test_a_moment_can_be_renamed(box) -> None:

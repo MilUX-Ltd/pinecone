@@ -4,11 +4,7 @@ their origin, one can be chosen, and the choice is what the map then uses."""
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
-import subprocess
-import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -35,7 +31,7 @@ def make_mbtiles(path: Path, name: str) -> None:
 
 
 @pytest.fixture()
-def page(tmp_path: Path):
+def page(serve_pinecone, tmp_path: Path):
     maps = tmp_path / "maps"
     maps.mkdir()
     make_mbtiles(maps / "andover.mbtiles", "Andover and district")
@@ -44,35 +40,8 @@ def page(tmp_path: Path):
     data.mkdir()
     state = tmp_path / "state"
     state.mkdir()
-    port = 8990 + (os.getpid() % 90)
-    p = subprocess.Popen(
-        [
-            sys.executable,
-            str(ROOT / "serve.py"),
-            "--port",
-            str(port),
-            "--data",
-            str(data),
-            "--maps",
-            str(maps),
-            "--state",
-            str(state),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        yield f"http://127.0.0.1:{port}", state
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+    with serve_pinecone(data=data, args=["--maps", str(maps), "--state", str(state)]) as served:
+        yield served.url, state
 
 
 def get(url: str) -> tuple[int, str]:
@@ -144,7 +113,7 @@ def test_only_a_discovered_id_can_be_chosen(page) -> None:
     assert code == 400
 
 
-def test_a_url_template_source_is_handed_to_the_browser(tmp_path: Path) -> None:
+def test_a_url_template_source_is_handed_to_the_browser(serve_pinecone, tmp_path: Path) -> None:
     """A chosen source that is a URL template is described as one, and Pinecone does not proxy it."""
     state = tmp_path / "state"
     state.mkdir()
@@ -156,32 +125,8 @@ def test_a_url_template_source_is_handed_to_the_browser(tmp_path: Path) -> None:
         "<customMapSource><name>Estate tiles</name><minZoom>8</minZoom><maxZoom>16</maxZoom>"
         "<tileType>png</tileType><url>http://192.168.88.10:8080/services/andover/tiles/{$z}/{$x}/{$y}.png</url></customMapSource>"
     )
-    port = 9090 + (os.getpid() % 80)
-    p = subprocess.Popen(
-        [
-            sys.executable,
-            str(ROOT / "serve.py"),
-            "--port",
-            str(port),
-            "--data",
-            str(data),
-            "--maps",
-            str(maps),
-            "--state",
-            str(state),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        base = f"http://127.0.0.1:{port}"
+    with serve_pinecone(data=data, args=["--maps", str(maps), "--state", str(state)]) as served:
+        base = served.url
         d = json.loads(get(f"{base}/api/maps")[1])
         est = next(s for s in d["sources"] if s["name"] == "Estate tiles")
         assert post(f"{base}/api/maps/choose", {"id": est["id"]})[0] == 200
@@ -189,6 +134,3 @@ def test_a_url_template_source_is_handed_to_the_browser(tmp_path: Path) -> None:
         assert meta["url"] == "http://192.168.88.10:8080/services/andover/tiles/{z}/{x}/{y}.png"
         html = get(f"{base}/status")[1]
         assert "192.168.88.10" in html, "the page shows where the browser will fetch tiles from"
-    finally:
-        p.terminate()
-        p.wait(timeout=5)

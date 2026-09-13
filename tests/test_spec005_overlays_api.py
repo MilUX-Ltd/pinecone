@@ -4,10 +4,6 @@ are listed, and each can be turned off."""
 from __future__ import annotations
 
 import json
-import os
-import subprocess
-import sys
-import time
 import urllib.error
 import urllib.request
 import zipfile
@@ -64,7 +60,7 @@ def get(url: str) -> tuple[int, str]:
 
 
 @pytest.fixture()
-def served(tmp_path: Path):
+def served(serve_pinecone, tmp_path: Path):
     files = {"boundary.kml": BOUNDARY, "phase-lines.kml": PHASE, "reported.cot": REPORTED}
     pack = tmp_path / "ex-cedar.zip"
     entries = "".join(f'<Content ignore="false" zipEntry="{p}"/>' for p in files)
@@ -79,35 +75,8 @@ def served(tmp_path: Path):
     state.mkdir()
     packs = tmp_path / "packs"
     packs.mkdir()
-    port = 9560 + (os.getpid() % 50)
-    p = subprocess.Popen(
-        [
-            sys.executable,
-            str(ROOT / "serve.py"),
-            "--port",
-            str(port),
-            "--data",
-            str(data),
-            "--state",
-            str(state),
-            "--packs",
-            str(packs),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        yield f"http://127.0.0.1:{port}", pack
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+    with serve_pinecone(data=data, args=["--state", str(state), "--packs", str(packs)]) as started:
+        yield started.url, pack
 
 
 def test_a_pack_can_be_imported_and_its_overlays_listed(served) -> None:

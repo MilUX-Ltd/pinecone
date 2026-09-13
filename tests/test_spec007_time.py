@@ -4,8 +4,6 @@ record already holds, and reported rather than pretended away. All synthetic."""
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import sys
 import time
 import urllib.request
@@ -125,7 +123,7 @@ def test_no_device_time_means_unknown_not_zero() -> None:
 
 
 @pytest.fixture()
-def served(tmp_path: Path):
+def served(serve_pinecone, tmp_path: Path):
     import pinecone_archive
 
     for d in ("data", "state", "archive"):
@@ -134,35 +132,16 @@ def served(tmp_path: Path):
     now = int(time.time() * 1000) - 3600_000
     a.record([row(i + 1, "FOX", now + i * 30_000 + 1_500, now + i * 30_000) for i in range(10)])
     a.close()
-    port = 9760 + (os.getpid() % 40)
-    p = subprocess.Popen(
-        [
-            sys.executable,
-            str(ROOT / "serve.py"),
-            "--port",
-            str(port),
-            "--data",
-            str(tmp_path / "data"),
+    with serve_pinecone(
+        data=tmp_path / "data",
+        args=[
             "--state",
             str(tmp_path / "state"),
             "--archive",
             str(tmp_path / "archive" / "pinecone.db"),
         ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+    ) as started:
+        yield started.url
 
 
 def test_the_time_facts_reach_the_bundle_the_player_reads(served: str) -> None:

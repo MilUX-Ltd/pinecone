@@ -4,10 +4,7 @@ their evidence and never a reason. Everything synthetic."""
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -265,24 +262,8 @@ def call(url: str, data: dict[str, str] | None = None) -> tuple[int, str]:
         return e.code, e.read().decode()
 
 
-def start(port: int, data: Path, state: Path) -> subprocess.Popen:
-    p = subprocess.Popen(
-        [sys.executable, str(ROOT / "serve.py"), "--port", str(port), "--data", str(data), "--state", str(state)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    for _ in range(60):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-            break
-        except Exception:
-            time.sleep(0.1)
-    return p
-
-
 @pytest.fixture()
-def box(tmp_path: Path):
+def box(serve_pinecone, tmp_path: Path):
     """A server over one synthetic bundle in which ALPHA and BRAVO walk together twenty metres apart."""
     data = tmp_path / "data"
     data.mkdir()
@@ -298,13 +279,8 @@ def box(tmp_path: Path):
         "counts": {"rows_kept": 40},
     }
     (data / "synth.json").write_text(json.dumps(bundle))
-    port = 9750 + (os.getpid() % 50)  # a different band from spec 006's fixture
-    p = start(port, data, state)
-    try:
-        yield f"http://127.0.0.1:{port}", state
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+    with serve_pinecone(data=data, args=["--state", str(state)]) as started:
+        yield started.url, state
 
 
 def test_the_proposals_route_answers_for_a_bundle(box) -> None:

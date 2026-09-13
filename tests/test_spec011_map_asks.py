@@ -4,14 +4,11 @@ browser uses, and a pack is drawn when you choose it. Everything here is synthet
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
-import subprocess
-import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -44,44 +41,29 @@ def call(url: str, data: dict[str, str] | None = None) -> tuple[int, str]:
         return e.code, e.read().decode()
 
 
-def start(tmp_path: Path, extra: list[str] | None = None) -> tuple[subprocess.Popen, str, Path]:
+@contextmanager
+def start(serve_pinecone, tmp_path: Path, extra: list[str] | None = None):
     maps = tmp_path / "maps"
     maps.mkdir(exist_ok=True)
     make_mbtiles(maps / "andover.mbtiles", "Andover and district")
     make_mbtiles(maps / "alpena.mbtiles", "Alpena CRTC")
     (tmp_path / "data").mkdir(exist_ok=True)
     (tmp_path / "state").mkdir(exist_ok=True)
-    port = 9900 + (os.getpid() % 50)  # a band of its own; the reviewers use 9950 and up
-    argv = [
-        sys.executable,
-        str(ROOT / "serve.py"),
-        "--port",
-        str(port),
-        "--data",
-        str(tmp_path / "data"),
+    args = [
         "--maps",
         str(maps),
         "--state",
         str(tmp_path / "state"),
+        *(extra or []),
     ]
-    p = subprocess.Popen(argv + (extra or []), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
-    for _ in range(60):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-            break
-        except Exception:
-            time.sleep(0.1)
-    return p, f"http://127.0.0.1:{port}", maps
+    with serve_pinecone(data=tmp_path / "data", args=args) as started:
+        yield started, maps
 
 
 @pytest.fixture()
-def box(tmp_path: Path):
-    p, base, maps = start(tmp_path)
-    try:
-        yield base, maps
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+def box(serve_pinecone, tmp_path: Path):
+    with start(serve_pinecone, tmp_path) as (started, maps):
+        yield started.url, maps
 
 
 # ---- criterion 1 ----------------------------------------------------------------------------------------
@@ -136,13 +118,9 @@ def test_choosing_a_pack_draws_the_pack(box) -> None:
     assert code == 200 and body == "PNGBYTES"
 
 
-def test_a_file_named_on_the_command_line_still_wins(tmp_path: Path) -> None:
+def test_a_file_named_on_the_command_line_still_wins(serve_pinecone, tmp_path: Path) -> None:
     named = tmp_path / "named.mbtiles"
     make_mbtiles(named, "Named on the command line")
-    p, base, _ = start(tmp_path, ["--tiles", str(named)])
-    try:
-        meta = json.loads(call(f"{base}/tiles/meta")[1])
+    with start(serve_pinecone, tmp_path, ["--tiles", str(named)]) as (started, _):
+        meta = json.loads(call(f"{started.url}/tiles/meta")[1])
         assert meta["available"] is True and meta["meta"]["name"] == "Named on the command line"
-    finally:
-        p.terminate()
-        p.wait(timeout=5)

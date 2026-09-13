@@ -113,6 +113,19 @@ Running it again keeps the credential and refreshes the discovery. `sudo /opt/pi
 takes the newest release and restarts the unit. Nothing touches the firewall or TAK Server's own
 configuration.
 
+## Removing it
+
+```
+sudo ./uninstall.sh           # remove Pinecone, keep the archive
+sudo ./uninstall.sh --purge   # remove the archive as well
+```
+
+A default removal takes both units, `/opt/pinecone`, `/etc/pinecone`, the `pinecone` database role
+and the `pinecone` user. It keeps `/var/lib/pinecone`, which holds the archive of where people
+were: that is personal data and deleting it is a separate decision, so `--purge` is what asks for
+it. Nothing of TAK Server's is touched, and an argument the script does not understand removes
+nothing at all. Running it twice is harmless and says so.
+
 ## Quick start, without installing, on the TAK Server itself
 
 ```bash
@@ -223,8 +236,20 @@ forward from where it last got to, writes each report once, and keeps every time
 whole detail blob exactly as it arrived. It checks free space before every batch and stops, saying
 so on the status page, rather than filling a disk the TAK Server is also using.
 
+It also keeps two things it did not before. **Who was on the net**: the server's own record of
+each client connecting and disconnecting, with the callsign, uid, username, team and role, in its
+own table. And **which groups a report went to**, by name, on every report. The TAK Server prunes
+its connection log on its own schedule, so unlike the reports there is no catching this up
+afterwards; that is why it is recorded from the moment you update, before anything displays it.
+Nothing on any page shows either yet.
+
+This is a real widening of what Pinecone holds and it is worth being plain about. A connection log
+is a presence and absence record for a named person, and absence is the half that misleads: a
+handset drops for a dozen reasons that have nothing to do with whoever is carrying it. Reports
+recorded before this release carry no group at all, which means unknown rather than none.
+
 On a box like MilUX's field kit that is about 7,000 reports a day, roughly 4 MB, so about 1.3 GB a
-year.
+year. The connection log is negligible beside that: a few hundred rows a month.
 
 The status page at `/status` says how many reports are held, the first and last, and whether the
 recorder is running. The replay takes a start and an end, so you can put in the period the
@@ -444,12 +469,44 @@ are done with a window.
 dropout, one Meshtastic-sourced track) so the player can be tried with no real
 data at all: `python3 synth.py` then pick `synthetic` in the bundle list.
 
+**What Pinecone is allowed to read on your server.** It creates its own PostgreSQL role with a
+password written only to `/etc/pinecone/pinecone.env`, and that role is read-only. It is granted
+`SELECT` on `cot_router` (the reports), `cot_router_chat` (GeoChat), and, from the release that
+added the connection log, `client_endpoint`, `client_endpoint_event`, `connection_event_type` and
+`groups`. Nothing else, and no write of any kind. `client_endpoint` is the one worth knowing
+about: it carries the account name a person signs in with. An older server missing any of those
+tables records what it can and says which one it could not read.
+
+**How long it keeps things.** A default install keeps position reports and messages for **365
+days** and connection events for **90**, and deletes the rest once a day. Both are set in
+`/etc/pinecone/pinecone.env` and survive an update:
+
+```
+PINECONE_KEEP_DAYS=365             # reports and messages
+PINECONE_KEEP_CONNECTION_DAYS=90   # who was on the net
+```
+
+`0` keeps that class for ever, which is a choice you can make deliberately. Anything unreadable is
+ignored and the default applies, so a typo cannot empty the archive. The status page says what the
+policy is and when it last ran, so you do not have to read the file to find out.
+
+One thing to expect: **the file does not shrink**. SQLite reuses the freed pages for new rows, so
+the archive stops growing rather than getting smaller. If you judge retention by the size of
+`pinecone.db` you will conclude it is not working. Judge it by the report count on the status page.
+
+**Removing it.** `sudo ./uninstall.sh` takes Pinecone off the box and keeps the archive;
+`--purge` deletes the archive too. Deleting the record of where identifiable people were is a
+separate decision from removing the software, which is why it is a separate flag.
+
 ## Files
 
 | File | What it does |
 |---|---|
 | `install.sh` | install beside a TAK Server as a service |
+| `uninstall.sh` | remove it again, keeping the archive unless `--purge` |
+| `CONTRACTS.md` | what the bundle, the archive and the environment file promise, and what they do not |
 | `pinecone_discover.py` | what the TAK Server is, where its database is, what it keeps; never a credential |
+| `pinecone_unit.py` | what address an existing unit and its drop-ins really run with, when an update has to read it back |
 | `pull.sh` | one `COPY` out of `cot_router`, locally or over ssh, into `data/` |
 | `build_bundle.py` | CSV to a bundle: callsign and device out of `detail`, all timestamps kept, nothing interpolated |
 | `serve.py` | stdlib HTTP server: the player, the bundles, tiles out of an mbtiles |

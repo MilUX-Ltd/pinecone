@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
 import time
 import urllib.error
@@ -27,7 +26,7 @@ def get(url: str) -> tuple[int, str]:
 
 
 @pytest.fixture()
-def served(tmp_path: Path):
+def served(serve_pinecone, tmp_path: Path):
     sys.path.insert(0, str(ROOT))
     import pinecone_archive
 
@@ -97,36 +96,12 @@ def served(tmp_path: Path):
     )
     env = dict(os.environ)
     env["PINECONE_DISCOVERY"] = str(disc)
-    port = 9190 + (os.getpid() % 70)
-    p = subprocess.Popen(
-        [
-            sys.executable,
-            str(ROOT / "serve.py"),
-            "--port",
-            str(port),
-            "--data",
-            str(data),
-            "--state",
-            str(state),
-            "--archive",
-            str(archive_dir / "pinecone.db"),
-        ],
+    with serve_pinecone(
+        data=data,
         env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+        args=["--state", str(state), "--archive", str(archive_dir / "pinecone.db")],
+    ) as started:
+        yield started.url
 
 
 def test_the_archive_reports_what_it_holds(served: str) -> None:
@@ -160,40 +135,15 @@ def test_the_player_can_ask_for_a_recent_window(served: str) -> None:
     assert b["tracks"][0]["n"] == 6
 
 
-def test_an_archive_that_is_not_there_is_said_so_not_guessed(tmp_path: Path) -> None:
-    port = 9270 + (os.getpid() % 60)
+def test_an_archive_that_is_not_there_is_said_so_not_guessed(serve_pinecone, tmp_path: Path) -> None:
     data = tmp_path / "d"
     data.mkdir()
-    p = subprocess.Popen(
-        [
-            sys.executable,
-            str(ROOT / "serve.py"),
-            "--port",
-            str(port),
-            "--data",
-            str(data),
-            "--archive",
-            str(tmp_path / "missing.db"),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        code, body = get(f"http://127.0.0.1:{port}/api/archive")
+    with serve_pinecone(data=data, args=["--archive", str(tmp_path / "missing.db")]) as started:
+        code, body = get(f"{started.url}/api/archive")
         assert code == 200
         d = json.loads(body)
         assert d["count"] == 0 and d["recording"] is False
         assert d["reason"]
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
 
 
 # The two gating findings the pre-UAT review saw on the live page rather than in the tests.

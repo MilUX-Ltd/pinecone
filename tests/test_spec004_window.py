@@ -4,8 +4,6 @@ the window rather than picking from three fixed ones."""
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import sys
 import time
 import urllib.error
@@ -27,7 +25,7 @@ def get(url: str) -> tuple[int, str]:
 
 
 @pytest.fixture()
-def served(tmp_path: Path):
+def served(serve_pinecone, tmp_path: Path):
     """A box holding an hour of reports, ten minutes apart, ending an hour ago."""
     sys.path.insert(0, str(ROOT))
     import pinecone_archive
@@ -64,35 +62,11 @@ def served(tmp_path: Path):
         )
     a.record(rows)
     a.close()
-    port = 9420 + (os.getpid() % 60)
-    p = subprocess.Popen(
-        [
-            sys.executable,
-            str(ROOT / "serve.py"),
-            "--port",
-            str(port),
-            "--data",
-            str(data),
-            "--state",
-            str(state),
-            "--archive",
-            str(archive_dir / "pinecone.db"),
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(60):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        yield f"http://127.0.0.1:{port}", base
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+    with serve_pinecone(
+        data=data,
+        args=["--state", str(state), "--archive", str(archive_dir / "pinecone.db")],
+    ) as started:
+        yield started.url, base
 
 
 # ---- criterion 5: the operator chooses the window ------------------------------------------

@@ -831,8 +831,30 @@ def archive_section() -> str:
         f"<dt>The record</dt><dd>{held}, {size} in <code>{e(str(a['path']))}</code>; {state}; {beat}. {e(free)}."
         f"{catching}"
         "<br>This is Pinecone's own copy, and it stays whatever the TAK Server's retention later deletes."
+        f"<br>{_retention_line(a)}"
         "<br><span class=dim>Position reports and GeoChat messages are kept; an <code>a-*</code> event with no fix is not a track point.</span></dd>"
     )
+
+
+def _retention_line(a: dict[str, Any]) -> str:
+    """What this box deletes and when, in words, on the page rather than only in a file.
+
+    A retention policy nobody can see is a claim rather than a control, and this archive holds the
+    movements of identifiable people and a record of when their handsets were on the net.
+    """
+    e = html.escape
+    raw = str(a.get("retention") or "")
+    if not raw:
+        return "<span class=dim>Retention: not yet applied on this box.</span>"
+    words = {"report": "reports", "chat": "messages", "connection": "connection events"}
+    parts = []
+    for item in raw.split(","):
+        name, _, days = item.partition("=")
+        label = words.get(name, name)
+        parts.append(f"{label} for ever" if days in ("0", "") else f"{label} for {days} days")
+    when = str(a.get("last_pruned") or "")
+    ran = f" Last applied {e(when[:19])}." if when else ""
+    return f"Retention: keeping {e(', '.join(parts))}.{ran}"
 
 
 def map_section(chosen: dict[str, Any] | None) -> str:
@@ -903,6 +925,37 @@ class H(BaseHTTPRequestHandler):
         self.end_headers()
         with contextlib.suppress(BrokenPipeError, ConnectionResetError):  # browser gave up on a tile mid-pan
             self.wfile.write(body)
+
+    def _read_body(self, cap: int) -> str | None:
+        """Read the request body, never trusting the length the caller claims.
+
+        Returns the body, or None having already answered 400, in which case the route returns
+        without answering again. Two claims are refused rather than believed:
+
+        A length that is not a number gets a 400 saying so. Left to int() it raises inside the
+        route, the connection is dropped with an empty reply, and a traceback goes to the error
+        stream. The test is digits, not int(): Content-Length is 1*DIGIT, while int() also accepts
+        an underscore separator and a leading plus, so 1_0 would be believed as ten bytes. The
+        same leniency is guarded at the "at" field of moments_post for the same reason.
+
+        A negative length is a length of zero. min(-1, cap) is -1, which is truthy, and
+        rfile.read(-1) reads to end of file, so the handler is held until the caller hangs up. The
+        route then gives its own existing 400 on an empty body, so no new kind of reply appears.
+
+        The cap is the caller's, not one number for everyone: map choose keeps 4096 and the other
+        routes keep 8192, both accepted decisions this defect does not reopen.
+
+        What this does not do: a caller that claims a length it then does not send still holds a
+        handler until it hangs up, because the read waits for bytes that never arrive. That is a
+        sibling of the fault above and it is not closed here; it needs a read deadline, which is a
+        change to how the server is served rather than to how a body is read.
+        """
+        claimed = (self.headers.get("Content-Length") or "0").strip()
+        if not re.fullmatch(r"-?[0-9]+", claimed):
+            self.send(400, b"the request's length is not a number")
+            return None
+        length = max(0, min(int(claimed), cap))
+        return self.rfile.read(length).decode("utf-8", "replace") if length else ""
 
     def records_get(self, p: str) -> None:
         import pinecone_record
@@ -1055,8 +1108,9 @@ class H(BaseHTTPRequestHandler):
     def moments_post(self, p: str) -> None:
         import uuid
 
-        length = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(min(length, 8192)).decode("utf-8", "replace") if length else ""
+        body = self._read_body(8192)
+        if body is None:
+            return
         form = {k: v[0] for k, v in parse_qs(body).items()}
         with _moments_lock:
             moments = load_moments()
@@ -1332,8 +1386,9 @@ class H(BaseHTTPRequestHandler):
         if p == "/api/packs/import":
             import pinecone_packages
 
-            length = int(self.headers.get("Content-Length") or 0)
-            body = self.rfile.read(min(length, 8192)).decode("utf-8", "replace") if length else ""
+            body = self._read_body(8192)
+            if body is None:
+                return
             wanted = parse_qs(body).get("path", [""])[0]
             if not wanted:
                 return self.send(400, b"give the path of a data package on this box")
@@ -1347,8 +1402,9 @@ class H(BaseHTTPRequestHandler):
                 return self.send(400, f"that package could not be read: {e}".encode())
             return self.send(200, json.dumps(record).encode(), MIME[".json"])
         if p == "/api/maps/choose":
-            length = int(self.headers.get("Content-Length") or 0)
-            body = self.rfile.read(min(length, 4096)).decode("utf-8", "replace") if length else ""
+            body = self._read_body(4096)
+            if body is None:
+                return
             wanted = parse_qs(body).get("id", [""])[0]
             ids = {s["id"] for s in all_sources()}
             if not wanted or wanted not in ids:
@@ -1440,7 +1496,13 @@ def main():
             f"tiles: {a.tiles} {'(open, ' + H.tiles.meta.get('name', '?') + ')' if H.tiles.db else '(NOT FOUND, map will be blank; pass --tiles or --tiles-url)'}"
         )
     print(f"bundles in {a.data}: {[os.path.basename(f) for f in glob.glob(os.path.join(a.data, '*.json'))]}")
-    print(f"Pinecone {read_version()}: http://{a.bind}:{a.port}/")
+    # Bind first, then say what happened. Announcing an address before the socket is taken means
+    # the banner can name a port this process never got, and the next line used to claim it was
+    # serving when it was about to die with Address already in use (spec 012). It also made
+    # --port 0 useless to a caller: the port was chosen by the kernel and never reported.
+    httpd = ThreadingHTTPServer((a.bind, a.port), H)
+    H.port = httpd.server_address[1]  # the port actually bound, which /status reports as well
+    print(f"Pinecone {read_version()}: http://{a.bind}:{H.port}/")
     if a.bind not in ("127.0.0.1", "localhost", "::1"):
         print(f"WARNING: listening on {a.bind}. No authentication. Anyone who can reach this port sees every track.")
     print(
@@ -1448,7 +1510,7 @@ def main():
     )
     sys.stdout.flush()
     try:
-        ThreadingHTTPServer((a.bind, a.port), H).serve_forever()
+        httpd.serve_forever()
     except KeyboardInterrupt:
         print("\nstopped")
 

@@ -78,6 +78,19 @@ if [[ -f "$ENVF" ]]; then
     KEPT_CHAT="$(sed -n 's/^PINECONE_CHAT=//p' "$ENVF" | head -1 | tr '[:upper:]' '[:lower:]')"
     case "$KEPT_CHAT" in no|false|0|off) CHAT=no ;; esac
 fi
+# How long the archive keeps each class of row, in days; 0 keeps for ever. Carried forward for the
+# same reason as the two above: this script rewrites the file wholesale on every run, so a setting
+# it does not carry forward is a setting an update deletes. Getting that wrong here would silently
+# restore a policy the operator had deliberately changed, on a file about personal data.
+KEEP_DAYS=365
+KEEP_CONNECTION_DAYS=90
+if [[ -f "$ENVF" ]]; then
+    KEPT_KEEP="$(sed -n 's/^PINECONE_KEEP_DAYS=//p' "$ENVF" | head -1)"
+    [[ "$KEPT_KEEP" =~ ^[0-9]+$ ]] && KEEP_DAYS="$KEPT_KEEP"
+    KEPT_KEEP_C="$(sed -n 's/^PINECONE_KEEP_CONNECTION_DAYS=//p' "$ENVF" | head -1)"
+    [[ "$KEPT_KEEP_C" =~ ^[0-9]+$ ]] && KEEP_CONNECTION_DAYS="$KEPT_KEEP_C"
+fi
+
 # The record's shape, ODCR (the UK's unit of feedback) or sustain-and-improve (the US's), is the
 # unit's own and lives here for the same reason as the two above.
 RECORD=odcr
@@ -91,18 +104,33 @@ if [[ -f "$ENVF" ]]; then
     KEPT_PORT="$(sed -n 's/^PINECONE_PORT=//p' "$ENVF" | head -1)"
 fi
 MIGRATED=0
-if [[ -z "$KEPT_BIND" && -f "$UNITF" ]]; then
-    # Anchored to a real directive: an unanchored match takes a commented-out ExecStart above the
-    # live one, which is exactly how an operator leaves the address they have just moved away from.
-    KEPT_BIND="$(sed -n 's/^[[:space:]]*ExecStart=.*serve\.py .*--bind \([^ ]*\).*/\1/p' "$UNITF" | tail -1)"
-    [[ -n "$KEPT_BIND" ]] && { MIGRATED=1; KEPT_BIND_FROM="$L_UNIT"; }
-fi
-if [[ -z "$KEPT_PORT" && -f "$UNITF" ]]; then
-    KEPT_PORT="$(sed -n 's/^[[:space:]]*ExecStart=.*serve\.py .*--port \([^ ]*\).*/\1/p' "$UNITF" | tail -1)"
-    [[ -n "$KEPT_PORT" ]] && KEPT_PORT_FROM="$L_UNIT"
+if [[ ( -z "$KEPT_BIND" || -z "$KEPT_PORT" ) && -f "$UNITF" ]]; then
+    # One tokeniser, not a pattern per shape. Two sed expressions used to do this and could not see
+    # a continued line, --bind=, a tab, or a quoted script path; they kept the quotation marks on a
+    # quoted address, which the IPv4 check below then refused; and they never read the drop-in
+    # directory, so a drop-in that put the box on every interface survived the update in silence
+    # while the closing line said loopback. Anchoring to a real directive is kept: a commented-out
+    # ExecStart is how an operator leaves the address they have just moved away from.
+    UNIT_READ="$(python3 "$SRC/pinecone_unit.py" "$UNITF" "$ROOT$L_UNIT.d" 2>/dev/null || true)"
+    U_BIND="$(printf '%s\n' "$UNIT_READ" | sed -n 's/^bind=//p' | tail -1)"
+    U_PORT="$(printf '%s\n' "$UNIT_READ" | sed -n 's/^port=//p' | tail -1)"
+    U_FROM="$(printf '%s\n' "$UNIT_READ" | sed -n 's/^source=//p' | tail -1)"
+    U_UNRESOLVED="$(printf '%s\n' "$UNIT_READ" | sed -n 's/^unresolved=//p' | tail -1)"
+    L_FROM="${U_FROM#"$ROOT"}"; L_FROM="${L_FROM:-$L_UNIT}"
+    if [[ -z "$KEPT_BIND" && -n "$U_BIND" ]]; then
+        KEPT_BIND="$U_BIND"; MIGRATED=1; KEPT_BIND_FROM="$L_FROM"
+    fi
+    if [[ -z "$KEPT_PORT" && -n "$U_PORT" ]]; then
+        KEPT_PORT="$U_PORT"; KEPT_PORT_FROM="$L_FROM"
+    fi
+    if [[ -z "$KEPT_BIND" && -n "$U_UNRESOLVED" ]]; then
+        # The honest unknown. Presenting our own default as the operator's setting is the fault
+        # this whole mechanism exists to stop, so name the file and say what is being used instead.
+        echo "WARN could not read the address in ${U_UNRESOLVED#"$ROOT"} (its arguments are behind a variable); using $BIND" >&2
+    fi
 fi
 if (( ! BIND_GIVEN )) && (( MIGRATED )) && [[ "$KEPT_BIND" =~ ^[0-9.]{7,15}$ ]]; then
-    log "carried the address over from $L_UNIT ($KEPT_BIND:${KEPT_PORT:-$PORT}); it is kept in $L_ENV from now on"
+    log "carried the address over from $KEPT_BIND_FROM ($KEPT_BIND:${KEPT_PORT:-$PORT}); it is kept in $L_ENV from now on"
 fi
 if (( ! BIND_GIVEN )) && [[ -n "$KEPT_BIND" ]]; then
     if [[ "$KEPT_BIND" =~ ^[0-9.]{7,15}$ ]]; then
@@ -156,8 +184,8 @@ HOST="$(printf '%s' "$DISC_JSON" | python3 -c 'import json,sys; print(json.load(
 PGPORT="$(printf '%s' "$DISC_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["database"].get("port") or 5432)')"
 write_env() {  # the non-secret lines from discovery, the password from $1; never printed
     mkdir -p "$ETC"; umask 027
-    printf 'PGHOST=%s\nPGPORT=%s\nPGDATABASE=%s\nPGUSER=%s\nPGPASSWORD=%s\nPINECONE_BIND=%s\nPINECONE_PORT=%s\nPINECONE_BACKFILL=%s\nPINECONE_CHAT=%s\nPINECONE_RECORD=%s\n' \
-        "$HOST" "$PGPORT" "$DBNAME" "$ROLE" "$1" "$BIND" "$PORT" "$BACKFILL" "$CHAT" "$RECORD" > "$ENVF"
+    printf 'PGHOST=%s\nPGPORT=%s\nPGDATABASE=%s\nPGUSER=%s\nPGPASSWORD=%s\nPINECONE_BIND=%s\nPINECONE_PORT=%s\nPINECONE_BACKFILL=%s\nPINECONE_CHAT=%s\nPINECONE_RECORD=%s\nPINECONE_KEEP_DAYS=%s\nPINECONE_KEEP_CONNECTION_DAYS=%s\n' \
+        "$HOST" "$PGPORT" "$DBNAME" "$ROLE" "$1" "$BIND" "$PORT" "$BACKFILL" "$CHAT" "$RECORD" "$KEEP_DAYS" "$KEEP_CONNECTION_DAYS" > "$ENVF"
     chmod 640 "$ENVF"; umask 022
 }
 role_exists="$(psql_as_postgres -c "SELECT rolname FROM pg_roles WHERE rolname = '$ROLE';" 2>/dev/null || true)"
@@ -190,12 +218,23 @@ unset PW
 # was recorded needs SELECT on cot_router_chat at its next update, and a grant is idempotent.
 # GeoChat lives in cot_router_chat on TAK Server 5.8; an older server without that table still
 # records positions, and says so.
-act "grant $ROLE SELECT on cot_router and cot_router_chat (read only, every run)"
+act "grant $ROLE SELECT on cot_router, cot_router_chat and the connection log (read only, every run)"
 if (( ! DRY )); then
     printf 'GRANT CONNECT ON DATABASE "%s" TO %s;\nGRANT USAGE ON SCHEMA public TO %s;\nGRANT SELECT ON cot_router TO %s;\n' "$DBNAME" "$ROLE" "$ROLE" "$ROLE" | psql_as_postgres >/dev/null \
         || die "could not grant SELECT on cot_router to $ROLE"
     printf 'GRANT SELECT ON cot_router_chat TO %s;\n' "$ROLE" | psql_as_postgres >/dev/null 2>&1 \
         || log "this server has no cot_router_chat table; positions are recorded and chat is not"
+    # Who was on the net, and when. Four small tables, all read-only, granted on every run so a box
+    # whose role was created before 0.8.0 picks them up at its next update, the same way chat did.
+    # Granted one at a time: an older server missing any of them should still record the rest
+    # rather than have the whole statement rolled back.
+    #
+    # This is a real widening of what the role can see, and it is named as such: the connection log
+    # says when a named person's handset was on the net. Threat note 016 carries it.
+    for tbl in client_endpoint client_endpoint_event connection_event_type groups; do
+        printf 'GRANT SELECT ON %s TO %s;\n' "$tbl" "$ROLE" | psql_as_postgres >/dev/null 2>&1 \
+            || log "this server has no $tbl table; who was connected is not recorded"
+    done
 fi
 
 # ---- user, tree, directories -----------------------------------------------------------------

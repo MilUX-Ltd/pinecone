@@ -1,5 +1,80 @@
 # Changelog
 
+## 1.0.0-rc.1 (13 September 2026)
+
+A release candidate, not the issued version. R-37 makes 1.0.0 immutable once issued, and the live
+checks on a real box are still outstanding: the removal script, the drop-in address read, the
+connection log filling, and a retention policy surviving an update. 1.0.0 issues when they pass.
+
+**The archive stops growing for ever** (spec 018). This is the change that makes a 1.0.0 honest.
+The record is the movements of identifiable people and it had no retention at all: it grew until
+somebody deleted the box. A default install now keeps reports and messages for 365 days and
+connection events for 90, deletes the rest once a day, and says on the status page what the policy
+is and when it last ran. Both numbers live in the environment file and survive an update, and `0`
+keeps that class for ever. Anything unreadable falls back to the default, so a typo cannot empty an
+archive. Note that the file does not shrink: SQLite reuses the freed pages, so the archive stops
+growing rather than getting smaller.
+
+**A transaction that commits late is still recorded** (spec 017), and this was the last known
+correctness hole in the record. PostgreSQL takes an id at insert and makes the row visible at
+commit, so a long transaction can hold a low id and commit after a higher one has already been
+read; reading forward by id stepped over it permanently. A fixed 500-id lag bounded that and no
+more. Each pass now takes the server's oldest transaction still in flight, and the next pass
+re-reads anything committed at or after it, so a late commit surfaces however far below the cursor
+it fell. A server that cannot answer for a horizon records exactly as it did before rather than
+stopping.
+
+**Who was on the net, and which groups a report went to.** The recorder keeps the server's own
+connection log, a Connected or Disconnected per client with a millisecond timestamp, in its own
+table; and on every report, the names of the groups the server routed it to. The connection log is
+the one part of the record that cannot be caught up later, because the server prunes its copy on
+its own schedule. The installer grants read on four further tables for it. Nothing displays either
+yet: the page that puts a delivered picture beside ground truth is still to come.
+
+## 0.7.0 (6 September 2026)
+
+`serve.py` now binds its socket before it announces an address, so the port it
+prints is the port it actually got and it no longer says `Serving.` when it is
+about to fail with `Address already in use`. That makes `--port 0` usable: a
+caller can start the server on any free port and read back which one it took.
+
+The test suite uses it. Thirteen served fixtures across ten files each carried
+their own copy of the start, wait and terminate code, each choosing a port from
+the process id, and each polling `/version` until anything answered. A stray
+process on one of those ports made the fixture's own server die unseen, the poll
+succeed against the stranger, and the test run against the wrong server, which
+surfaced as an unrelated failed assertion. They are now one `serve_pinecone`
+helper in `tests/conftest.py`: it picks no port, reads the bound port back from
+the server, refuses a reply from anything that is not Pinecone, and when a start
+fails it says so at once, naming the port and quoting the server's own output.
+
+**A malformed request length is answered, never awaited** (spec 013). Three POST routes
+read the body through `min(length, cap)` and believed whatever length the caller claimed. A
+negative one made the read run to end of file and held that handler until the caller hung up; one
+that was not a number raised inside the route, dropped the connection with an empty reply and put a
+traceback on the error stream. All three now read through one helper that answers `400` promptly.
+A length is tested against the grammar HTTP actually specifies, digits, rather than against
+whatever `int()` happens to accept, so `1_0` is no longer believed as ten.
+
+**A supported way off the box** (spec 014). `uninstall.sh` is back, with its own tests.
+It removes both units the installer writes, not just one, so a box is not left with a unit pointing
+at a deleted file in a permanent restart loop. It reads the whole command line and refuses anything
+it does not understand rather than removing everything anyway. The archive at `/var/lib/pinecone`
+is kept unless `--purge` asks for it, because it is where identifiable people were and deleting it
+is a separate decision. Running it twice says there was nothing to remove rather than reporting a
+removal it did not make.
+
+**An update reads the address a box is really on** (spec 015). Reading the operator's
+chosen address out of an old unit file was two regular expressions doing a shell's word splitting,
+and they missed a continued line, `--bind=`, a tab separator, a quoted script path, and a quoted
+address that reached the environment file still wearing its quotation marks. One tokeniser now
+reads all of them. The case that mattered was the drop-in: the installer rewrites
+`pinecone.service` on every run and never touches `pinecone.service.d/`, so a drop-in putting the
+box on every interface survived the update while the closing line reported loopback. That one
+failed silent and exposed rather than safe and loud. Where the address genuinely cannot be
+determined, the installer now names the file and says what it is using instead of presenting its
+own default as the operator's choice.
+
 ## 0.6.5 (5 September 2026)
 
 Pictures in the README: the replay, the moments and the record, from the

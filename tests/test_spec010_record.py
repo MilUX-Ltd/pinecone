@@ -5,12 +5,11 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 import sys
-import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -32,46 +31,26 @@ def call(url: str, data: dict[str, str] | None = None) -> tuple[int, str, dict[s
         return e.code, e.read().decode(), {k.lower(): v for k, v in e.headers.items()}
 
 
-def start(port: int, data: Path, state: Path, env: dict[str, str] | None = None) -> subprocess.Popen:
-    e = {k: v for k, v in os.environ.items() if not k.startswith("PINECONE_")}
-    e.update(env or {})
-    p = subprocess.Popen(
-        [sys.executable, str(ROOT / "serve.py"), "--port", str(port), "--data", str(data), "--state", str(state)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        env=e,
-    )
-    for _ in range(60):
-        try:
-            urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-            break
-        except Exception:
-            time.sleep(0.1)
-    return p
-
-
-def make_box(tmp_path: Path, env: dict[str, str] | None = None, band: int = 9800):
-    """A server of its own. Two boxes in one test take two bands, or the second fails to bind and
-    every call quietly reaches the first, which is how the shape test first passed the wrong box."""
+@contextmanager
+def make_box(serve_pinecone, tmp_path: Path, env: dict[str, str] | None = None):
+    """A server of its own. Two boxes in one test each bind a port of their own, so the second can
+    no longer fail to bind and have every call quietly reach the first, which is how the shape test
+    first passed the wrong box."""
     tmp_path.mkdir(parents=True, exist_ok=True)
     data = tmp_path / "data"
     data.mkdir(exist_ok=True)
     state = tmp_path / "state"
     state.mkdir(exist_ok=True)
-    port = band + (os.getpid() % 50)  # 9800 and 9850: bands of their own, beside spec 006's and spec 009's
-    p = start(port, data, state, env)
-    return p, f"http://127.0.0.1:{port}", state
+    e = {k: v for k, v in os.environ.items() if not k.startswith("PINECONE_")}
+    e.update(env or {})
+    with serve_pinecone(data=data, env=e, args=["--state", str(state)]) as started:
+        yield started, state
 
 
 @pytest.fixture()
-def box(tmp_path: Path):
-    p, base, state = make_box(tmp_path)
-    try:
-        yield base, state
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+def box(serve_pinecone, tmp_path: Path):
+    with make_box(serve_pinecone, tmp_path) as (started, state):
+        yield started.url, state
 
 
 def new_record(
@@ -169,7 +148,7 @@ def test_the_budget_is_twelve_with_the_count_visible(box) -> None:
 # ---- criterion 4 ----------------------------------------------------------------------------------------
 
 
-def test_the_export_is_markdown_in_the_chosen_shape(box, tmp_path: Path) -> None:
+def test_the_export_is_markdown_in_the_chosen_shape(serve_pinecone, box, tmp_path: Path) -> None:
     base, _ = box
     rid = new_record(base)["id"]
     call(f"{base}/api/moments", {"at": str(T0 + 25 * 60_000), "name": "passage of lines, bridge"})
@@ -196,8 +175,8 @@ def test_the_export_is_markdown_in_the_chosen_shape(box, tmp_path: Path) -> None
     assert "## Sustain" not in text
 
     # the other shape, from the same store
-    p, base2, _ = make_box(tmp_path / "two", {"PINECONE_RECORD": "sustain-improve"}, band=9850)
-    try:
+    with make_box(serve_pinecone, tmp_path / "two", {"PINECONE_RECORD": "sustain-improve"}) as (second, _):
+        base2 = second.url
         rid2 = new_record(base2)["id"]
         call(f"{base2}/api/records/{rid2}/items", ITEM)
         call(
@@ -211,9 +190,6 @@ def test_the_export_is_markdown_in_the_chosen_shape(box, tmp_path: Path) -> None
         assert "The casevac drill ran as rehearsed." in text and ITEM["observation"] in text
         assert "Conclusion" not in text and ITEM["conclusion"] not in text
         assert json.loads(call(f"{base2}/api/records")[1])["shape"] == "sustain-improve"
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
 
 
 # ---- criterion 5 ----------------------------------------------------------------------------------------

@@ -17,7 +17,9 @@ def sh(*args: str, cwd: Path, env: dict[str, str] | None = None) -> subprocess.C
     return subprocess.run(list(args), cwd=cwd, capture_output=True, text=True, env=e, timeout=60, check=False)
 
 
-@pytest.mark.parametrize("script", ["pull.sh", "update.sh", "bin/ship.sh", "bin/package.sh", ".githooks/pre-commit"])
+@pytest.mark.parametrize(
+    "script", ["pull.sh", "update.sh", "uninstall.sh", "bin/ship.sh", "bin/package.sh", ".githooks/pre-commit"]
+)
 def test_scripts_parse(root: Path, script: str) -> None:
     assert sh("bash", "-n", script, cwd=root).returncode == 0
 

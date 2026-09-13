@@ -15,6 +15,7 @@ from __future__ import annotations
 import contextlib
 import os
 import sqlite3
+import time
 from typing import Any
 
 SCHEMA = """
@@ -33,7 +34,8 @@ CREATE TABLE IF NOT EXISTS report (
     hae          REAL,
     ce           REAL,
     le           REAL,
-    detail       TEXT
+    detail       TEXT,
+    "groups"     TEXT   -- the group names the server routed this to; null on rows recorded before 0.8.0
 );
 CREATE INDEX IF NOT EXISTS report_servertime ON report (servertime);
 CREATE INDEX IF NOT EXISTS report_uid_servertime ON report (uid, servertime);
@@ -55,13 +57,41 @@ CREATE TABLE IF NOT EXISTS chat (
     hae          REAL,
     ce           REAL,
     le           REAL,
-    detail       TEXT
+    detail       TEXT,
+    "groups"     TEXT
 );
 CREATE INDEX IF NOT EXISTS chat_servertime ON chat (servertime);
+-- Who was on the net, and when. From the server's client_endpoint_event, which it prunes on its
+-- own schedule, so an event not taken today may not be there tomorrow. Its own table for the same
+-- reason chat has one: its own id sequence, so its own cursor.
+--
+-- The group bits are kept as NAMES, not as the server's bit vector. That vector is 32768 bits
+-- wide on a real TAK Server, so keeping it verbatim would add 32 KB to every row, which on a
+-- server with a couple of hundred thousand reports is several gigabytes of padding. The names are
+-- what the question is actually asked in.
+CREATE TABLE IF NOT EXISTS connection (
+    id             INTEGER PRIMARY KEY,   -- client_endpoint_event.id: the cursor and the identity
+    servertime     TEXT NOT NULL,         -- created_ts, to the millisecond
+    arrived        TEXT NOT NULL,
+    event          TEXT NOT NULL,         -- Connected or Disconnected
+    callsign       TEXT,
+    uid            TEXT,
+    username       TEXT,
+    team           TEXT,
+    role           TEXT,
+    client_version TEXT,
+    "groups"       TEXT
+);
+CREATE INDEX IF NOT EXISTS connection_servertime ON connection (servertime);
+CREATE INDEX IF NOT EXISTS connection_uid_servertime ON connection (uid, servertime);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 
-TABLES = ("report", "chat")
+# Every table the archive holds its own cursor and floor for.
+TABLES = ("report", "chat", "connection")
+# The ones shaped like a CoT report. `connection` is not one: it is a different record with a
+# different shape, and `record` writes it by a different path.
+REPORT_TABLES = ("report", "chat")
 
 
 def meta_key(table: str, name: str) -> str:
@@ -73,6 +103,25 @@ def meta_key(table: str, name: str) -> str:
 
 
 MAX_WINDOW_ROWS = 250_000
+
+# How long a default install keeps each class of row, in days. 0 means keep for ever.
+#
+# The archive is the movements of identifiable people, and the connection table records when a
+# named person's handset was on the net. Different numbers because they are different records: a
+# year of position history is what a debrief can plausibly want to reach back to, while a presence
+# and absence log is the more sensitive of the two and the least useful once it is old.
+#
+# Both are configurable, and keeping everything is still available by asking for it. What is no
+# longer available is keeping everything by default without anyone having decided to.
+DEFAULT_RETENTION = {"report": 365, "chat": 365, "connection": 90}
+
+# The archive's own shape, written into the file with PRAGMA user_version so a future release can
+# tell what it is looking at rather than inferring it from which columns happen to exist.
+#
+# 1 is the shape at 1.0.0: report and chat carrying groups, and the connection table. Anything
+# older reads as 0 and is upgraded in place by _add_missing_columns. Bump this when the shape
+# changes, and CONTRACTS.md says what a change is allowed to be.
+SCHEMA_VERSION = 1
 
 
 def _utcnow() -> str:
@@ -114,6 +163,24 @@ class Archive:
         self.db.execute("PRAGMA journal_mode=WAL")
         self.db.execute("PRAGMA synchronous=NORMAL")
         self.db.executescript(SCHEMA)
+        self._add_missing_columns()
+        self.db.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
+
+    def _add_missing_columns(self) -> None:
+        """Bring an archive written by an older release up to the current shape.
+
+        CREATE TABLE IF NOT EXISTS does nothing to a table that already exists, so a column added
+        to the schema never reaches an archive already on a box. Every box in the field has one.
+        Guarded by the table's own column list rather than by a version number, so it is safe to
+        run on every open and safe to run twice.
+
+        Rows recorded before the column existed keep a null in it, which is not the same as "no
+        groups" and must not be read as one: the picture says membership is unknown for them.
+        """
+        for table in REPORT_TABLES:
+            have = {r["name"] for r in self.db.execute(f"PRAGMA table_info({table})")}
+            if "groups" not in have:
+                self.db.execute(f'ALTER TABLE {table} ADD COLUMN "groups" TEXT')
 
     def close(self) -> None:
         self.db.close()
@@ -132,6 +199,8 @@ class Archive:
     def record(self, rows: list[dict[str, Any]], table: str = "report") -> int:
         """Write reports (or messages) that are not already held. Returns how many were new."""
         meta_key(table, "")  # refuses a table the archive does not have
+        if table == "connection":
+            return self._record_connections(rows)
         self.reopen_if_gone()
         if not rows:
             return 0
@@ -153,14 +222,15 @@ class Archive:
                 _num(r.get("point_ce")),
                 _num(r.get("point_le")),
                 r.get("detail") or "",
+                _text(r.get("groups")),
             )
             for r in rows
         ]
         before = self.db.total_changes
         self.db.executemany(
             f"INSERT OR IGNORE INTO {table} (id, uid, cot_type, how, device_time, device_start, stale,"  # noqa: S608 - one of two literals
-            " servertime, arrived, lat, lon, hae, ce, le, detail)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ' servertime, arrived, lat, lon, hae, ce, le, detail, "groups")'
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             values,
         )
         written = self.db.total_changes - before
@@ -170,6 +240,94 @@ class Archive:
             # stamping on rows rather than on writes made a dead-quiet net look like a busy one.
             self.set_meta("last_run", seen)
         return written
+
+    def _record_connections(self, rows: list[dict[str, Any]]) -> int:
+        """Write connection events that are not already held. Returns how many were new.
+
+        A different shape from a report, so a different insert: no position, no detail, and an
+        event name instead of a CoT type. The `groups` value here is already the group names, done
+        on the server, because the raw bit vector is 32768 bits wide.
+        """
+        self.reopen_if_gone()
+        if not rows:
+            return 0
+        seen = _utcnow()
+        values = [
+            (
+                int(r["id"]),
+                _text(r.get("servertime")) or "",
+                seen,
+                _text(r.get("event")) or "",
+                _text(r.get("callsign")),
+                _text(r.get("uid")),
+                _text(r.get("username")),
+                _text(r.get("team")),
+                _text(r.get("role")),
+                _text(r.get("client_version")),
+                _text(r.get("groups")),
+            )
+            for r in rows
+        ]
+        before = self.db.total_changes
+        self.db.executemany(
+            "INSERT OR IGNORE INTO connection (id, servertime, arrived, event, callsign, uid,"
+            ' username, team, role, client_version, "groups")'
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            values,
+        )
+        written = self.db.total_changes - before
+        if written:
+            self.set_meta("last_run", seen)
+        return written
+
+    def prune(self, policy: dict[str, int], now_ms: int | None = None) -> dict[str, int]:
+        """Delete rows older than the policy allows. Returns how many went, per table.
+
+        Deletion is by `servertime`, the moment the server received the row, because that is the
+        fact the retention promise is about. `arrived` is when Pinecone happened to read it, which
+        a backfill makes meaningless as an age.
+
+        What this deliberately does not do is move the cursor. The cursor is `max(id)` over the
+        table and pruning takes the oldest rows, so it is unaffected; and the floor is already set,
+        so an archive pruned back to empty is not mistaken for a fresh install and re-seeded. Both
+        are asserted, because getting either wrong would make the recorder read the server's whole
+        history again.
+
+        The file does not shrink. SQLite reuses the freed pages for new rows, so the archive stops
+        growing rather than getting smaller, which is the property the policy is actually for.
+        """
+        self.reopen_if_gone()
+        now = int(time.time() * 1000) if now_ms is None else int(now_ms)
+        removed: dict[str, int] = {}
+        for table in TABLES:
+            days = int(policy.get(table, 0) or 0)
+            if days <= 0:
+                removed[table] = 0
+                continue
+            cutoff = _ms_to_text(now - days * 86_400_000)
+            # Before deleting, not after: the mark has to survive a prune that empties the table,
+            # or the recorder reads the server's whole history again. The floor is deliberately not
+            # used for this, because raising the floor to the cursor would defeat the cursor lag.
+            self.set_meta(meta_key(table, "high_water"), str(self.cursor(table)))
+            before_changes = self.db.total_changes
+            self.db.execute(f"DELETE FROM {table} WHERE servertime < ?", (cutoff,))  # noqa: S608 - a literal from TABLES
+            removed[table] = self.db.total_changes - before_changes
+        self.set_meta("retention", ",".join(f"{k}={int(policy.get(k, 0) or 0)}" for k in TABLES))
+        self.set_meta("last_pruned", _utcnow())
+        return removed
+
+    def connections(self, start_ms: int, end_ms: int) -> list[dict[str, Any]]:
+        """Every connection event in a window, in the order the server recorded them.
+
+        Deliberately not merged into `window`: these are not reports and must never be drawn as
+        though they were. They answer a different question, which is who could have been shown
+        anything at all.
+        """
+        rows = self.db.execute(
+            "SELECT * FROM connection WHERE servertime >= ? AND servertime < ? ORDER BY servertime, id",
+            (_ms_to_text(start_ms), _ms_to_text(end_ms, up=True)),
+        ).fetchall()
+        return [dict(r) for r in rows]
 
     def set_meta(self, key: str, value: str) -> None:
         self.db.execute(
@@ -191,11 +349,24 @@ class Archive:
         return int(row["n"] or 0)
 
     def cursor(self, table: str = "report") -> int:
-        """The highest source id held, never below the floor. Where the recorder picks up."""
+        """The highest source id held, never below the floor or the high-water mark.
+
+        The high-water mark exists because of retention. The cursor used to be derived from the
+        rows present, so pruning the oldest rows was harmless but pruning a table back to empty
+        took the cursor to zero with it, and the next pass would read the server's entire history
+        again. The mark is set by `prune` and nothing else lowers it.
+        """
         meta_key(table, "")
         row = self.db.execute(f"SELECT max(id) AS m FROM {table}").fetchone()  # noqa: S608 - one of two literals
         held = int(row["m"]) if row and row["m"] is not None else 0
-        return max(held, self.floor(table))
+        return max(held, self.floor(table), self.high_water(table))
+
+    def high_water(self, table: str = "report") -> int:
+        """The highest id this table has ever held, kept across a prune."""
+        try:
+            return int(self.get_meta(meta_key(table, "high_water")) or 0)
+        except ValueError:
+            return 0
 
     def floor(self, table: str = "report") -> int:
         """The id the record starts at. Set once, on the first run, to whatever the server's table
@@ -237,6 +408,10 @@ class Archive:
             "last_checked": self.get_meta("last_checked"),
             "cursor": self.cursor(),
             "chat_cursor": self.cursor("chat"),
+            "connections": self.count("connection"),
+            "connection_cursor": self.cursor("connection"),
+            "retention": self.get_meta("retention"),
+            "last_pruned": self.get_meta("last_pruned"),
         }
 
     def count_window(self, start_ms: int, end_ms: int) -> int:

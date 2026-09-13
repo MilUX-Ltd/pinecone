@@ -5,9 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
-import sys
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -59,7 +56,7 @@ DISCOVERY = {
 
 
 @pytest.fixture()
-def page(tmp_path: Path):
+def page(serve_pinecone, tmp_path: Path):
     disc = tmp_path / "discovery.json"
     disc.write_text(json.dumps(DISCOVERY))
     env = dict(os.environ)
@@ -68,25 +65,8 @@ def page(tmp_path: Path):
     env["PGUSER"] = "pinecone"
     env["PGPASSWORD"] = "not-a-real-password-xyz"
     env["PGDATABASE"] = "cot"
-    port = 8790 + (os.getpid() % 100)
-    p = subprocess.Popen(
-        [sys.executable, str(ROOT / "serve.py"), "--port", str(port), "--data", str(tmp_path)],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(50):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
+    with serve_pinecone(data=tmp_path, env=env) as served:
+        yield served.url
 
 
 def get(url: str) -> tuple[int, str]:
@@ -150,26 +130,9 @@ def test_the_json_has_no_password(page: str) -> None:
     assert not [k for k in keys(d) if "pass" in k.lower()]
 
 
-def test_without_a_discovery_file_the_page_says_so(tmp_path: Path) -> None:
+def test_without_a_discovery_file_the_page_says_so(serve_pinecone, tmp_path: Path) -> None:
     env = dict(os.environ)
     env["PINECONE_DISCOVERY"] = str(tmp_path / "missing.json")
-    port = 8890 + (os.getpid() % 100)
-    p = subprocess.Popen(
-        [sys.executable, str(ROOT / "serve.py"), "--port", str(port), "--data", str(tmp_path)],
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-    )
-    try:
-        for _ in range(50):
-            try:
-                urllib.request.urlopen(f"http://127.0.0.1:{port}/version", timeout=1).read()
-                break
-            except Exception:
-                time.sleep(0.1)
-        code, html = get(f"http://127.0.0.1:{port}/status")
+    with serve_pinecone(data=tmp_path, env=env) as served:
+        code, html = get(f"{served.url}/status")
         assert code == 200 and "install.sh" in html and "/replay" in html
-    finally:
-        p.terminate()
-        p.wait(timeout=5)
